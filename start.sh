@@ -13,13 +13,18 @@
 # ╚════════════════════════════════════════════════════════════════════════════╝
 
 # Version information
-VERSION="1.0.0"
-CODENAME="Phoenix"
+VERSION="2.0.0"
+CODENAME="Inferno"
 
 # Default settings
-DEFAULT_MEMORY="1G"
+DEFAULT_MEMORY="2G"
 DEFAULT_PORT="25565"
 DEFAULT_MC_VERSION="1.20.4"
+
+# Plugin URLs
+CHUNKY_URL="https://cdn.modrinth.com/data/fALzjamp/versions/ytBhnGfO/Chunky-Bukkit-1.4.28.jar"
+MEMORY_REST_URL="https://cdn.modrinth.com/data/BETNSd2r/versions/n8DhYGER/LetUrMemoryRest-4.0.jar"
+MEMORY_LEAK_FIX_URL="https://www.spigotmc.org/resources/memoryleakfix-1-18-1-20-x.117491/download?version=546137"
 
 # Enhanced color palette
 RESET="\033[0m"
@@ -60,6 +65,11 @@ GEAR="⚙️"
 LIGHTNING="⚡"
 CROWN="👑"
 SPARKLES="✨"
+HEART="❤️"
+SKULL="💀"
+DRAGON="🐉"
+SWORD="⚔️"
+SHIELD="🛡️"
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
 # ║ ERROR HANDLING                                                             ║
@@ -74,7 +84,7 @@ handle_error() {
     local error_line=$2
     local error_command=$3
     
-    echo -e "\n${BOLD_RED}ERROR: Command '${error_command}' failed with exit code ${exit_code} at line ${error_line}${RESET}"
+    echo -e "\n${BOLD_RED}${SKULL} ERROR: Command '${error_command}' failed with exit code ${exit_code} at line ${error_line}${RESET}"
     echo -e "${BOLD_YELLOW}The script encountered an error. Please check the output above for details.${RESET}"
     
     # Clean up any temporary files or processes
@@ -151,7 +161,7 @@ print_header() {
 spinner() {
     local message="$1"
     local delay=0.1
-    local spinstr='|/-\'
+    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     
     while true; do
         for ((i=0; i<${#spinstr}; i++)); do
@@ -200,65 +210,6 @@ fancy_box() {
     echo -e "$RESET"
 }
 
-# Function to display a menu with options
-display_menu() {
-    local title="$1"
-    local icon="${2:-}"
-    shift
-    if [ -n "$icon" ]; then
-        shift
-    fi
-    local options=("$@")
-    
-    if [ -n "$icon" ]; then
-        print_header "$title" "$BOLD_CYAN" "$icon"
-    else
-        print_header "$title"
-    fi
-    
-    for ((i=0; i<${#options[@]}; i++)); do
-        local option_num=$((i+1))
-        echo -e " ${BOLD_WHITE}${option_num})${RESET} ${options[$i]}"
-    done
-    
-    echo
-    echo -ne " ${BOLD_YELLOW}${ARROW} ${RESET}Enter your choice (1-${#options[@]}): "
-}
-
-# Function to get user input with validation
-get_input() {
-    local prompt="$1"
-    local default="$2"
-    local validation="$3"
-    local result
-    
-    while true; do
-        echo -ne "${BOLD_YELLOW}${ARROW} ${RESET}${prompt}"
-        if [ -n "$default" ]; then
-            echo -ne " [${BOLD_GREEN}${default}${RESET}]: "
-        else
-            echo -ne ": "
-        fi
-        
-        read -r result
-        
-        # Use default if input is empty
-        if [ -z "$result" ] && [ -n "$default" ]; then
-            result="$default"
-        fi
-        
-        # Validate input if validation function is provided
-        if [ -n "$validation" ] && ! $validation "$result"; then
-            echo -e "${BOLD_RED}${CROSS_MARK} Invalid input. Please try again.${RESET}"
-            continue
-        fi
-        
-        break
-    done
-    
-    echo "$result"
-}
-
 # Function to get yes/no input
 get_yes_no() {
     local prompt="$1"
@@ -288,43 +239,28 @@ get_yes_no() {
     [[ "$result" == "y" || "$result" == "yes" ]]
 }
 
-# Function to validate numeric input
-validate_numeric() {
-    [[ "$1" =~ ^[0-9]+$ ]]
-}
-
-# Function to validate version input
-validate_version() {
-    [[ "$1" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || [ "$1" == "latest" ]
-}
-
-# Function to validate memory input
-validate_memory() {
-    [[ "$1" =~ ^[0-9]+[MG]$ ]]
-}
-
-# Function to validate port input
-validate_port() {
-    [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
-}
-
 # Function to download with retry
 download_with_retry() {
     local url="$1"
     local output_file="$2"
-    local max_retries=3
+    local max_retries=5
     local retry_count=0
     
     while [ $retry_count -lt $max_retries ]; do
-        echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading from: ${url}"
+        echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading: ${BOLD_CYAN}$(basename "$output_file")${RESET}"
+        start_spinner "Downloading"
+        
         if curl -s -L -o "$output_file" "$url"; then
+            stop_spinner
             # Verify the file was downloaded and is not empty
             if [ -s "$output_file" ]; then
+                echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Downloaded successfully: ${BOLD_CYAN}$(basename "$output_file")${RESET}"
                 return 0
             else
                 echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Downloaded file is empty. Retrying..."
             fi
         else
+            stop_spinner
             echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Download failed. Retrying..."
         fi
         
@@ -333,6 +269,7 @@ download_with_retry() {
             echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Retry attempt ($retry_count/$max_retries)..."
             sleep 2
         else
+            stop_spinner
             echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download after $max_retries attempts."
             return 1
         fi
@@ -351,15 +288,30 @@ show_banner() {
     echo -e "${BOLD_CYAN}"
     cat << "EOF"
  ██████╗███████╗ █████╗ ██████╗  █████╗  ██████╗████████╗██╗   ██╗██╗     
-██╔════╝███████╗██╔══██╗██╔══██╗██╔══██╗██╔════╝╚══██╔══╝╚██╗ ██╔╝██║     
-██║     ╚═██╔═╝███████║██████╔╝███████║██║        ██║    ╚████╔╝ ██║     
-██║     ███████╗██╔══██║██╔══██╗██╔══██║██║        ██║     ╚██╔╝  ██║     
-╚██████╗███████║██║  ██║██║  ██║██║  ██║╚██████╗   ██║      ██║   ███████╗
+██╔════╝╚███╔═╝██╔══██╗██╔══██╗██╔══██╗██╔════╝╚══██╔══╝╚██╗ ██╔╝██║     
+██║      ╚███╔╝███████║██████╔╝███████║██║        ██║    ╚████╔╝ ██║     
+██║      ███╔═╝██╔══██║██╔══██╗██╔══██║██║        ██║     ╚██╔╝  ██║     
+╚██████╗███████╗██║  ██║██║  ██║██║  ██║╚██████╗   ██║      ██║   ███████╗
  ╚═════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝   ╚═╝      ╚═╝   ╚══════╝
 EOF
     echo -e "${RESET}"
     
-    print_centered "${SPARKLES} MULTI-SOFTWARE SERVER MANAGER ${SPARKLES}" "$BOLD_YELLOW"
+    echo -e "${BOLD_RED}"
+    cat << "EOF"
+                                 /|
+                                / |
+                               /__|______
+                              |  __  __  |
+                              | |  ||  | |
+                              | |__||__| |
+                              |  __  __()| 
+                              | |  ||  | |
+                              | |__||__| |
+                              |__________|
+EOF
+    echo -e "${RESET}"
+    
+    print_centered "${FIRE} ULTIMATE SERVER MANAGER ${FIRE}" "$BOLD_YELLOW"
     print_centered "Version ${VERSION} - ${CODENAME}" "$BOLD_WHITE"
     print_centered "Made by Arpit for Czar" "$BOLD_PURPLE"
     print_line "═" "$BOLD_CYAN"
@@ -410,13 +362,15 @@ setup_java() {
         "-XX:SurvivorRatio=32"
         "-XX:+PerfDisableSharedMem"
         "-XX:MaxTenuringThreshold=1"
+        "-Dusing.aikars.flags=https://mcflags.emc.gs"
+        "-Daikars.new.flags=true"
     )
 }
 
 # Function to download and install server software
 install_server() {
-    local server_type=$1
-    local mc_version=$2
+    local server_type="paper"
+    local mc_version="$DEFAULT_MC_VERSION"
     
     print_header "Installing ${server_type^} Server" "$BOLD_CYAN" "$ROCKET"
     
@@ -429,234 +383,81 @@ install_server() {
     local temp_dir=".czar_temp"
     mkdir -p "$temp_dir"
     
-    case $server_type in
-        "paper")
-            if [ "$mc_version" == "latest" ]; then
-                mc_version="$DEFAULT_MC_VERSION"
-                echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Using default version: ${BOLD_CYAN}${mc_version}${RESET}"
-            fi
+    echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading Paper server for Minecraft ${BOLD_CYAN}${mc_version}${RESET}..."
+    
+    # Try direct download first
+    local download_url="https://api.papermc.io/v2/projects/paper/versions/$mc_version/builds/latest/downloads/paper-$mc_version-latest.jar"
+    
+    if ! download_with_retry "$download_url" "server.jar"; then
+        # Try alternative method - get build info first
+        echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Direct download failed. Trying alternative method..."
+        
+        # Get latest build info
+        local build_info
+        if build_info=$(curl -s "https://api.papermc.io/v2/projects/paper/versions/$mc_version/builds"); then
+            # Extract latest build number
+            local latest_build
+            latest_build=$(echo "$build_info" | grep -o '"build":[0-9]*' | grep -o '[0-9]*' | tail -1)
             
-            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading Paper server for Minecraft ${BOLD_CYAN}${mc_version}${RESET}..."
-            
-            # Try direct download first
-            local download_url="https://api.papermc.io/v2/projects/paper/versions/$mc_version/builds/latest/downloads/paper-$mc_version-latest.jar"
-            
-            if ! download_with_retry "$download_url" "server.jar"; then
-                # Try alternative method - get build info first
-                echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Direct download failed. Trying alternative method..."
+            if [ -n "$latest_build" ]; then
+                echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Found build: ${BOLD_CYAN}#${latest_build}${RESET}"
                 
-                # Get latest build info
-                local build_info
-                if build_info=$(curl -s "https://api.papermc.io/v2/projects/paper/versions/$mc_version/builds"); then
-                    # Extract latest build number
-                    local latest_build
-                    latest_build=$(echo "$build_info" | grep -o '"build":[0-9]*' | grep -o '[0-9]*' | tail -1)
-                    
-                    if [ -n "$latest_build" ]; then
-                        echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Found build: ${BOLD_CYAN}#${latest_build}${RESET}"
-                        
-                        # Construct download URL with specific build number
-                        local specific_url="https://api.papermc.io/v2/projects/paper/versions/$mc_version/builds/$latest_build/downloads/paper-$mc_version-$latest_build.jar"
-                        
-                        if ! download_with_retry "$specific_url" "server.jar"; then
-                            echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download Paper server jar."
-                            rm -rf "$temp_dir"
-                            return 1
-                        fi
-                    else
-                        echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to parse build information."
-                        rm -rf "$temp_dir"
-                        return 1
-                    fi
-                else
-                    echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to get build information."
+                # Construct download URL with specific build number
+                local specific_url="https://api.papermc.io/v2/projects/paper/versions/$mc_version/builds/$latest_build/downloads/paper-$mc_version-$latest_build.jar"
+                
+                if ! download_with_retry "$specific_url" "server.jar"; then
+                    echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download Paper server jar."
                     rm -rf "$temp_dir"
                     return 1
                 fi
-            fi
-            
-            echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Paper server jar downloaded successfully!"
-            echo "paper" > .server-type
-            ;;
-            
-        "forge")
-            if [ "$mc_version" == "latest" ]; then
-                mc_version="$DEFAULT_MC_VERSION"
-                echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Using default version: ${BOLD_CYAN}${mc_version}${RESET}"
-            fi
-            
-            # Get latest Forge version for the specified Minecraft version
-            local forge_version
-            case "$mc_version" in
-                "1.20.4") forge_version="49.0.14" ;;
-                "1.19.4") forge_version="45.1.0" ;;
-                "1.18.2") forge_version="40.2.0" ;;
-                "1.17.1") forge_version="37.1.1" ;;
-                "1.16.5") forge_version="36.2.39" ;;
-                *) forge_version="49.0.14" ;;
-            esac
-            
-            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading Forge installer for Minecraft ${BOLD_CYAN}${mc_version}${RESET} (Forge ${BOLD_CYAN}${forge_version}${RESET})..."
-            
-            local download_url="https://maven.minecraftforge.net/net/minecraftforge/forge/$mc_version-$forge_version/forge-$mc_version-$forge_version-installer.jar"
-            local installer_jar="$temp_dir/forge-installer.jar"
-            
-            if ! download_with_retry "$download_url" "$installer_jar"; then
-                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download Forge installer."
-                rm -rf "$temp_dir"
-                return 1
-            fi
-            
-            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Installing Forge server (this may take a while)..."
-            start_spinner "Installing Forge server"
-            if ! java -jar "$installer_jar" --installServer > /dev/null 2>&1; then
-                stop_spinner
-                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to install Forge server."
-                rm -rf "$temp_dir"
-                return 1
-            fi
-            stop_spinner
-            
-            # Find the forge jar
-            local forge_jar
-            forge_jar=$(find . -name "forge-$mc_version-$forge_version*.jar" | grep -v installer | head -1)
-            
-            if [ -z "$forge_jar" ]; then
-                echo -e "${BOLD_RED}${CROSS_MARK} Failed to find Forge server jar${RESET}"
-                rm -rf "$temp_dir"
-                return 1
-            fi
-            
-            # Rename to server.jar
-            cp "$forge_jar" "server.jar"
-            
-            echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Forge server installed successfully!"
-            echo "forge" > .server-type
-            ;;
-            
-        "fabric")
-            if [ "$mc_version" == "latest" ]; then
-                mc_version="$DEFAULT_MC_VERSION"
-                echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Using default version: ${BOLD_CYAN}${mc_version}${RESET}"
-            fi
-            
-            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading Fabric installer..."
-            
-            # Download Fabric installer
-            local fabric_version="0.15.7"
-            local installer_jar="$temp_dir/fabric-installer.jar"
-            local download_url="https://maven.fabricmc.net/net/fabricmc/fabric-installer/$fabric_version/fabric-installer-$fabric_version.jar"
-            
-            if ! download_with_retry "$download_url" "$installer_jar"; then
-                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download Fabric installer."
-                rm -rf "$temp_dir"
-                return 1
-            fi
-            
-            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Installing Fabric server for Minecraft ${BOLD_CYAN}${mc_version}${RESET}..."
-            start_spinner "Installing Fabric server"
-            if ! java -jar "$installer_jar" server -mcversion "$mc_version" -downloadMinecraft > /dev/null 2>&1; then
-                stop_spinner
-                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to install Fabric server."
-                rm -rf "$temp_dir"
-                return 1
-            fi
-            stop_spinner
-            
-            if [ -f "fabric-server-launch.jar" ]; then
-                # Rename to server.jar
-                cp "fabric-server-launch.jar" "server.jar"
-                echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Fabric server installed successfully!"
             else
-                echo -e "${BOLD_RED}${CROSS_MARK} Failed to install Fabric server${RESET}"
+                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to parse build information."
                 rm -rf "$temp_dir"
                 return 1
             fi
-            
-            echo "fabric" > .server-type
-            ;;
-            
-        "sponge")
-            if [ "$mc_version" == "latest" ]; then
-                mc_version="1.16.5"
-                echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Using default version: ${BOLD_CYAN}${mc_version}${RESET}"
-            fi
-            
-            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading Sponge server for Minecraft ${BOLD_CYAN}${mc_version}${RESET}..."
-            
-            local download_url="https://repo.spongepowered.org/maven/org/spongepowered/spongevanilla/$mc_version-8.0.0/spongevanilla-$mc_version-8.0.0.jar"
-            
-            if ! download_with_retry "$download_url" "server.jar"; then
-                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download Sponge server jar."
-                rm -rf "$temp_dir"
-                return 1
-            fi
-            
-            echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Sponge server downloaded successfully!"
-            echo "sponge" > .server-type
-            ;;
-            
-        "bungeecord")
-            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading latest BungeeCord server..."
-            
-            local download_url="https://ci.md-5.net/job/BungeeCord/lastSuccessfulBuild/artifact/bootstrap/target/BungeeCord.jar"
-            
-            if ! download_with_retry "$download_url" "server.jar"; then
-                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download BungeeCord server jar."
-                rm -rf "$temp_dir"
-                return 1
-            fi
-            
-            echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}BungeeCord server downloaded successfully!"
-            echo "bungeecord" > .server-type
-            ;;
-            
-        "velocity")
-            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading latest Velocity server..."
-            
-            local download_url="https://api.papermc.io/v2/projects/velocity/versions/3.2.0-SNAPSHOT/builds/263/downloads/velocity-3.2.0-SNAPSHOT-263.jar"
-            
-            if ! download_with_retry "$download_url" "server.jar"; then
-                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download Velocity server jar."
-                rm -rf "$temp_dir"
-                return 1
-            fi
-            
-            echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Velocity server downloaded successfully!"
-            echo "velocity" > .server-type
-            ;;
-            
-        "purpur")
-            if [ "$mc_version" == "latest" ]; then
-                mc_version="$DEFAULT_MC_VERSION"
-                echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Using default version: ${BOLD_CYAN}${mc_version}${RESET}"
-            fi
-            
-            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading Purpur server for Minecraft ${BOLD_CYAN}${mc_version}${RESET}..."
-            
-            local download_url="https://api.purpurmc.org/v2/purpur/$mc_version/latest/download"
-            
-            if ! download_with_retry "$download_url" "server.jar"; then
-                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download Purpur server jar."
-                rm -rf "$temp_dir"
-                return 1
-            fi
-            
-            echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Purpur server downloaded successfully!"
-            echo "purpur" > .server-type
-            ;;
-            
-        *)
-            echo -e "${BOLD_RED}${CROSS_MARK} Unsupported server type: $server_type${RESET}"
+        else
+            echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to get build information."
             rm -rf "$temp_dir"
             return 1
-            ;;
-    esac
+        fi
+    fi
+    
+    echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Paper server jar downloaded successfully!"
+    echo "paper" > .server-type
     
     # Clean up temporary directory
     rm -rf "$temp_dir"
     
     fancy_box "${SPARKLES} Server software installed successfully! ${SPARKLES}" "$BOLD_GREEN"
+    return 0
+}
+
+# Function to download plugins
+download_plugins() {
+    print_header "Downloading Performance Plugins" "$BOLD_CYAN" "$LIGHTNING"
+    
+    # Create plugins directory if it doesn't exist
+    mkdir -p plugins
+    
+    # Download Chunky plugin
+    echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading Chunky plugin..."
+    if ! download_with_retry "$CHUNKY_URL" "plugins/Chunky-Bukkit-1.4.28.jar"; then
+        echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download Chunky plugin."
+    fi
+    
+    # Download LetUrMemoryRest plugin
+    echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading LetUrMemoryRest plugin..."
+    if ! download_with_retry "$MEMORY_REST_URL" "plugins/LetUrMemoryRest-4.0.jar"; then
+        echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download LetUrMemoryRest plugin."
+    fi
+    
+    # Download MemoryLeakFix plugin
+    echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading MemoryLeakFix plugin..."
+    if ! download_with_retry "$MEMORY_LEAK_FIX_URL" "plugins/MemoryLeakFix.jar"; then
+        echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download MemoryLeakFix plugin."
+    fi
+    
+    fancy_box "${SPARKLES} Performance plugins downloaded successfully! ${SPARKLES}" "$BOLD_GREEN"
     return 0
 }
 
@@ -671,29 +472,26 @@ configure_server() {
     
     # Ask about cracked mode
     local online_mode="true"
-    if get_yes_no "Enable cracked mode (allows non-premium Minecraft accounts)?" "n"; then
+    if get_yes_no "Are you using cracked Minecraft? (This will allow non-premium accounts)" "n"; then
         online_mode="false"
         echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Cracked mode enabled (online-mode=false)"
     else
         echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Premium mode enabled (online-mode=true)"
     fi
     
-    # Create server.properties for Minecraft servers
-    if [[ "$server_type" != "bungeecord" && "$server_type" != "velocity" ]]; then
-        if [ ! -f "server.properties" ]; then
-            echo -e "${BOLD_YELLOW}${ARROW  ]]; then
-        if [ ! -f "server.properties" ]; then
-            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Creating server.properties file..."
-            
-            # Get server port
-            local port=${SERVER_PORT:-$DEFAULT_PORT}
-            
-            cat > server.properties << EOL
+    # Create server.properties
+    if [ ! -f "server.properties" ]; then
+        echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Creating server.properties file..."
+        
+        # Get server port
+        local port=${SERVER_PORT:-$DEFAULT_PORT}
+        
+        cat > server.properties << EOL
 #Minecraft server properties
 #Generated by Czaractyl Server Manager
 #$(date)
 server-port=${port}
-motd=\\u00A7b\\u00A7lCzaractyl \\u00A78| \\u00A7fMade by Arpit for Czar
+motd=\\u00A7c\\u00A7l\\u00A7nCzaractyl\\u00A7r \\u00A78| \\u00A7d\\u00A7lMade by Arpit for Czar
 enable-command-block=true
 spawn-protection=0
 view-distance=10
@@ -705,43 +503,12 @@ white-list=false
 difficulty=normal
 gamemode=survival
 EOL
-            echo -e "  ${BOLD_GREEN}${CHECK_MARK} ${RESET}server.properties created successfully!"
-        else
-            echo -e "  ${BOLD_BLUE}${ARROW} ${RESET}Updating existing server.properties..."
-            # Update online-mode in existing server.properties
-            sed -i "s/online-mode=.*/online-mode=${online_mode}/" server.properties
-            echo -e "  ${BOLD_GREEN}${CHECK_MARK} ${RESET}server.properties updated successfully!"
-        fi
-    fi
-    
-    # Create config for BungeeCord
-    if [ "$server_type" == "bungeecord" ] && [ ! -f "config.yml" ]; then
-        echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Creating BungeeCord configuration..."
-        
-        # Get server port
-        local port=${SERVER_PORT:-$DEFAULT_PORT}
-        
-        cat > config.yml << EOL
-server_connect_timeout: 5000
-listeners:
-- query_port: 25577
-  motd: '&b&lCzaractyl &8| &fMade by Arpit for Czar'
-  tab_list: GLOBAL_PING
-  query_enabled: false
-  proxy_protocol: false
-  forced_hosts:
-    pvp.md-5.net: pvp
-  ping_passthrough: false
-  priorities:
-  - lobby
-  bind_local_address: true
-  host: 0.0.0.0:${port}
-  max_players: 500
-  tab_size: 60
-  force_default_server: false
-online_mode: ${online_mode}
-EOL
-        echo -e "  ${BOLD_GREEN}${CHECK_MARK} ${RESET}BungeeCord config.yml created successfully!"
+        echo -e "  ${BOLD_GREEN}${CHECK_MARK} ${RESET}server.properties created successfully!"
+    else
+        echo -e "  ${BOLD_BLUE}${ARROW} ${RESET}Updating existing server.properties..."
+        # Update online-mode in existing server.properties
+        sed -i "s/online-mode=.*/online-mode=${online_mode}/" server.properties
+        echo -e "  ${BOLD_GREEN}${CHECK_MARK} ${RESET}server.properties updated successfully!"
     fi
     
     # Accept EULA
@@ -770,96 +537,11 @@ start_server() {
     echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Memory allocation: ${BOLD_CYAN}${MEMORY}${RESET}"
     echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Using optimized startup flags"
     
-    # Start the server based on type
-    case $server_type in
-        "paper"|"purpur"|"sponge")
-            echo -e "${BOLD_GREEN}${ROCKET} ${RESET}Launching server with command:"
-            echo -e "  ${BOLD_WHITE}java -Xms512M -Xmx${MEMORY} [optimized flags] -jar server.jar nogui${RESET}"
-            echo
-            java -Xms512M -Xmx$MEMORY ${JAVA_FLAGS[@]} -jar server.jar nogui
-            ;;
-        "forge")
-            echo -e "${BOLD_GREEN}${ROCKET} ${RESET}Launching Forge server with command:"
-            echo -e "  ${BOLD_WHITE}java -Xms512M -Xmx${MEMORY} [optimized flags] -jar server.jar nogui${RESET}"
-            echo
-            java -Xms512M -Xmx$MEMORY ${JAVA_FLAGS[@]} -jar server.jar nogui
-            ;;
-        "fabric")
-            echo -e "${BOLD_GREEN}${ROCKET} ${RESET}Launching Fabric server with command:"
-            echo -e "  ${BOLD_WHITE}java -Xms512M -Xmx${MEMORY} [optimized flags] -jar server.jar nogui${RESET}"
-            echo
-            java -Xms512M -Xmx$MEMORY ${JAVA_FLAGS[@]} -jar server.jar nogui
-            ;;
-        "bungeecord"|"velocity")
-            echo -e "${BOLD_GREEN}${ROCKET} ${RESET}Launching proxy server with command:"
-            echo -e "  ${BOLD_WHITE}java -Xms512M -Xmx${MEMORY} -jar server.jar${RESET}"
-            echo
-            java -Xms512M -Xmx$MEMORY -jar server.jar
-            ;;
-        *)
-            echo -e "${BOLD_RED}${CROSS_MARK} Unknown server type: $server_type${RESET}"
-            return 1
-            ;;
-    esac
-    
-    return 0
-}
-
-# Function to handle server selection and installation
-select_and_install_server() {
-    # Display server type selection menu
-    server_options=(
-        "${GREEN}Paper${RESET} - High performance fork with plugin support (Recommended)"
-        "${YELLOW}Forge${RESET} - For modded Minecraft"
-        "${BLUE}Fabric${RESET} - Lightweight, modular mod loader"
-        "${PURPLE}Purpur${RESET} - Fork of Paper with additional features"
-        "${CYAN}BungeeCord${RESET} - Proxy server for connecting multiple servers"
-        "${BLUE}Velocity${RESET} - Modern, high-performance proxy server"
-        "${RED}Sponge${RESET} - Plugin API for Minecraft"
-    )
-    
-    display_menu "Select Server Software" "$ROCKET" "${server_options[@]}"
-    read -r choice
-    
-    case $choice in
-        1) server_type="paper";;
-        2) server_type="forge";;
-        3) server_type="fabric";;
-        4) server_type="purpur";;
-        5) server_type="bungeecord";;
-        6) server_type="velocity";;
-        7) server_type="sponge";;
-        *) 
-            echo -e "${BOLD_RED}${CROSS_MARK} Invalid choice. Defaulting to Paper.${RESET}"
-            sleep 2
-            server_type="paper"
-            ;;
-    esac
-    
-    # Get Minecraft version
-    echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Enter Minecraft version (e.g., 1.20.4) or press Enter for latest: "
-    read -r mc_version
-    
-    if [ -z "$mc_version" ]; then
-        mc_version="$DEFAULT_MC_VERSION"
-        echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Using default version: ${BOLD_CYAN}${mc_version}${RESET}"
-    fi
-    
-    # Install server
-    if ! install_server "$server_type" "$mc_version"; then
-        echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Server installation failed. Please check the logs above."
-        return 1
-    fi
-    
-    # Configure server
-    configure_server
-    
-    # Ask to start server
-    if get_yes_no "Start the server now?" "y"; then
-        start_server
-    else
-        echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Server setup completed. Run the script again to start the server."
-    fi
+    # Start the server
+    echo -e "${BOLD_GREEN}${ROCKET} ${RESET}Launching server with command:"
+    echo -e "  ${BOLD_WHITE}java -Xms512M -Xmx${MEMORY} [optimized flags] -jar server.jar nogui${RESET}"
+    echo
+    java -Xms512M -Xmx$MEMORY ${JAVA_FLAGS[@]} -jar server.jar nogui
     
     return 0
 }
@@ -872,51 +554,30 @@ main() {
     # Setup Java
     setup_java
     
-    # Check if server is already installed
-    if [ -f ".server-type" ]; then
-        local server_type
-        server_type=$(cat .server-type 2>/dev/null || echo "unknown")
+    # Ask to start
+    if get_yes_no "Do you want to start the server?" "y"; then
+        # Check if server is already installed
+        if [ -f "server.jar" ]; then
+            echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Found existing server installation."
+        else
+            # Install server
+            if ! install_server; then
+                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Server installation failed. Please check the logs above."
+                exit 1
+            fi
+        fi
         
-        echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Found existing ${BOLD_CYAN}${server_type^}${RESET} server installation."
+        # Download plugins
+        download_plugins
         
-        # Display main menu
-        main_options=(
-            "${GREEN}Start Server${RESET} - Launch the existing server"
-            "${YELLOW}Reinstall Server${RESET} - Change server software or version"
-            "${BLUE}Server Settings${RESET} - Configure server properties"
-            "${RED}Exit${RESET} - Exit without starting the server"
-        )
+        # Configure server
+        configure_server
         
-        display_menu "Main Menu" "$CROWN" "${main_options[@]}"
-        read -r choice
-        
-        case $choice in
-            1) # Start server
-                configure_server
-                start_server
-                ;;
-            2) # Reinstall server
-                select_and_install_server
-                ;;
-            3) # Server settings
-                configure_server
-                if get_yes_no "Start the server now?" "y"; then
-                    start_server
-                fi
-                ;;
-            4) # Exit
-                echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Exiting Czaractyl Server Manager. Goodbye!"
-                exit 0
-                ;;
-            *) # Invalid choice
-                echo -e "${BOLD_RED}${CROSS_MARK} Invalid choice. Starting server with current configuration.${RESET}"
-                sleep 2
-                start_server
-                ;;
-        esac
+        # Start server
+        start_server
     else
-        echo -e "${BOLD_YELLOW}${ARROW} ${RESET}No server installation found. Let's set up a new server!"
-        select_and_install_server
+        echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Exiting Czaractyl Server Manager. Goodbye!"
+        exit 0
     fi
 }
 
