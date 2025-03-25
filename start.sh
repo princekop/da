@@ -57,6 +57,50 @@ DIAMOND="♦"
 ROCKET="🚀"
 FIRE="🔥"
 GEAR="⚙️"
+LIGHTNING="⚡"
+CROWN="👑"
+SPARKLES="✨"
+
+# ╔════════════════════════════════════════════════════════════════════════════╗
+# ║ ERROR HANDLING                                                             ║
+# ╚════════════════════════════════════════════════════════════════════════════╝
+
+# Set up error handling
+set -o pipefail
+
+# Error handling function
+handle_error() {
+    local exit_code=$1
+    local error_line=$2
+    local error_command=$3
+    
+    echo -e "\n${BOLD_RED}ERROR: Command '${error_command}' failed with exit code ${exit_code} at line ${error_line}${RESET}"
+    echo -e "${BOLD_YELLOW}The script encountered an error. Please check the output above for details.${RESET}"
+    
+    # Clean up any temporary files or processes
+    cleanup
+    
+    # Exit with error code
+    exit $exit_code
+}
+
+# Set up trap for errors
+trap 'handle_error $? $LINENO "$BASH_COMMAND"' ERR
+
+# Cleanup function
+cleanup() {
+    # Kill any background processes
+    if [ -f .spinner.pid ]; then
+        kill $(cat .spinner.pid) > /dev/null 2>&1 || true
+        rm .spinner.pid
+    fi
+    
+    # Remove temporary files
+    rm -f .temp_* 2>/dev/null || true
+}
+
+# Set up trap for script exit
+trap cleanup EXIT
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
 # ║ UTILITY FUNCTIONS                                                          ║
@@ -90,37 +134,87 @@ print_line() {
 print_header() {
     local title="$1"
     local color="${2:-$BOLD_CYAN}"
+    local icon="${3:-}"
     
     echo
     print_line "═" "$color"
-    print_centered "$title" "$color"
+    if [ -n "$icon" ]; then
+        print_centered "$icon $title $icon" "$color"
+    else
+        print_centered "$title" "$color"
+    fi
     print_line "═" "$color"
     echo
 }
 
 # Function to display a spinner animation
 spinner() {
-    local pid=$1
+    local message="$1"
     local delay=0.1
     local spinstr='|/-\'
     
-    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
-        local temp=${spinstr#?}
-        printf " [%c]  " "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b\b\b"
+    while true; do
+        for ((i=0; i<${#spinstr}; i++)); do
+            echo -ne "\r$message [${spinstr:$i:1}]"
+            sleep $delay
+        done
     done
-    printf "    \b\b\b\b"
+}
+
+# Function to start spinner in background
+start_spinner() {
+    local message="$1"
+    spinner "$message" &
+    echo $! > .spinner.pid
+}
+
+# Function to stop spinner
+stop_spinner() {
+    if [ -f .spinner.pid ]; then
+        kill $(cat .spinner.pid) > /dev/null 2>&1 || true
+        rm .spinner.pid
+    fi
+    echo -e "\r\033[K"
+}
+
+# Function to display a fancy box with text
+fancy_box() {
+    local text="$1"
+    local color="${2:-$BOLD_CYAN}"
+    local width=$(tput cols 2>/dev/null || echo 80)
+    local text_width=${#text}
+    local padding=$(( (width - text_width - 4) / 2 ))
+    
+    echo -ne "$color"
+    printf "%${width}s" | tr " " "═"
+    echo -e "$RESET"
+    
+    echo -ne "$color║$RESET"
+    printf "%${padding}s" ""
+    echo -ne "$text"
+    printf "%$(( width - padding - text_width - 2 ))s" ""
+    echo -e "$color║$RESET"
+    
+    echo -ne "$color"
+    printf "%${width}s" | tr " " "═"
+    echo -e "$RESET"
 }
 
 # Function to display a menu with options
 display_menu() {
     local title="$1"
+    local icon="${2:-}"
     shift
+    if [ -n "$icon" ]; then
+        shift
+    fi
     local options=("$@")
     
-    print_header "$title"
+    if [ -n "$icon" ]; then
+        print_header "$title" "$BOLD_CYAN" "$icon"
+    else
+        print_header "$title"
+    fi
     
     for ((i=0; i<${#options[@]}; i++)); do
         local option_num=$((i+1))
@@ -135,21 +229,32 @@ display_menu() {
 get_input() {
     local prompt="$1"
     local default="$2"
+    local validation="$3"
     local result
     
-    echo -ne "${BOLD_YELLOW}${ARROW} ${RESET}${prompt}"
-    if [ -n "$default" ]; then
-        echo -ne " [${BOLD_GREEN}${default}${RESET}]: "
-    else
-        echo -ne ": "
-    fi
-    
-    read -r result
-    
-    # Use default if input is empty
-    if [ -z "$result" ] && [ -n "$default" ]; then
-        result="$default"
-    fi
+    while true; do
+        echo -ne "${BOLD_YELLOW}${ARROW} ${RESET}${prompt}"
+        if [ -n "$default" ]; then
+            echo -ne " [${BOLD_GREEN}${default}${RESET}]: "
+        else
+            echo -ne ": "
+        fi
+        
+        read -r result
+        
+        # Use default if input is empty
+        if [ -z "$result" ] && [ -n "$default" ]; then
+            result="$default"
+        fi
+        
+        # Validate input if validation function is provided
+        if [ -n "$validation" ] && ! $validation "$result"; then
+            echo -e "${BOLD_RED}${CROSS_MARK} Invalid input. Please try again.${RESET}"
+            continue
+        fi
+        
+        break
+    done
     
     echo "$result"
 }
@@ -183,6 +288,26 @@ get_yes_no() {
     [[ "$result" == "y" || "$result" == "yes" ]]
 }
 
+# Function to validate numeric input
+validate_numeric() {
+    [[ "$1" =~ ^[0-9]+$ ]]
+}
+
+# Function to validate version input
+validate_version() {
+    [[ "$1" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || [ "$1" == "latest" ]
+}
+
+# Function to validate memory input
+validate_memory() {
+    [[ "$1" =~ ^[0-9]+[MG]$ ]]
+}
+
+# Function to validate port input
+validate_port() {
+    [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
 # Function to download with retry
 download_with_retry() {
     local url="$1"
@@ -191,13 +316,21 @@ download_with_retry() {
     local retry_count=0
     
     while [ $retry_count -lt $max_retries ]; do
+        echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading from: ${url}"
         if curl -s -L -o "$output_file" "$url"; then
-            return 0
+            # Verify the file was downloaded and is not empty
+            if [ -s "$output_file" ]; then
+                return 0
+            else
+                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Downloaded file is empty. Retrying..."
+            fi
+        else
+            echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Download failed. Retrying..."
         fi
         
         retry_count=$((retry_count + 1))
         if [ $retry_count -lt $max_retries ]; then
-            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Download failed. Retrying ($retry_count/$max_retries)..."
+            echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Retry attempt ($retry_count/$max_retries)..."
             sleep 2
         else
             echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download after $max_retries attempts."
@@ -217,16 +350,16 @@ show_banner() {
     clear
     echo -e "${BOLD_CYAN}"
     cat << "EOF"
-   ██████╗███████╗ █████╗ ██████╗  █████╗  ██████╗████████╗██╗   ██╗██╗     
-  ██╔════╝╚══███╔╝██╔══██╗██╔══██╗██╔══██╗██╔════╝╚══██╔══╝╚██╗ ██╔╝██║     
-  ██║       ███╔╝ ███████║██████╔╝███████║██║        ██║    ╚████╔╝ ██║     
-  ██║      ███╔╝  ██╔══██║██╔══██╗██╔══██║██║        ██║     ╚██╔╝  ██║     
-  ╚██████╗███████╗██║  ██║██║  ██║██║  ██║╚██████╗   ██║      ██║   ███████╗
-   ╚═════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝   ╚═╝      ╚═╝   ╚══════╝
+ ██████╗███████╗ █████╗ ██████╗  █████╗  ██████╗████████╗██╗   ██╗██╗     
+██╔════╝███████╗██╔══██╗██╔══██╗██╔══██╗██╔════╝╚══██╔══╝╚██╗ ██╔╝██║     
+██║     ╚═██╔═╝███████║██████╔╝███████║██║        ██║    ╚████╔╝ ██║     
+██║     ███████╗██╔══██║██╔══██╗██╔══██║██║        ██║     ╚██╔╝  ██║     
+╚██████╗███████║██║  ██║██║  ██║██║  ██║╚██████╗   ██║      ██║   ███████╗
+ ╚═════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝   ╚═╝      ╚═╝   ╚══════╝
 EOF
     echo -e "${RESET}"
     
-    print_centered "✧ MULTI-SOFTWARE SERVER MANAGER ✧" "$BOLD_YELLOW"
+    print_centered "${SPARKLES} MULTI-SOFTWARE SERVER MANAGER ${SPARKLES}" "$BOLD_YELLOW"
     print_centered "Version ${VERSION} - ${CODENAME}" "$BOLD_WHITE"
     print_centered "Made by Arpit for Czar" "$BOLD_PURPLE"
     print_line "═" "$BOLD_CYAN"
@@ -235,7 +368,7 @@ EOF
 
 # Function to detect Java version
 setup_java() {
-    print_header "Java Configuration"
+    print_header "Java Configuration" "$BOLD_CYAN" "$GEAR"
     
     # Get Java version
     if command -v java >/dev/null 2>&1; then
@@ -285,7 +418,7 @@ install_server() {
     local server_type=$1
     local mc_version=$2
     
-    print_header "Installing ${server_type^} Server"
+    print_header "Installing ${server_type^} Server" "$BOLD_CYAN" "$ROCKET"
     
     echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Preparing to install ${BOLD_CYAN}${server_type^}${RESET} server (Minecraft ${BOLD_CYAN}${mc_version}${RESET})..."
     
@@ -305,12 +438,41 @@ install_server() {
             
             echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Downloading Paper server for Minecraft ${BOLD_CYAN}${mc_version}${RESET}..."
             
+            # Try direct download first
             local download_url="https://api.papermc.io/v2/projects/paper/versions/$mc_version/builds/latest/downloads/paper-$mc_version-latest.jar"
             
             if ! download_with_retry "$download_url" "server.jar"; then
-                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download Paper server jar."
-                rm -rf "$temp_dir"
-                return 1
+                # Try alternative method - get build info first
+                echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Direct download failed. Trying alternative method..."
+                
+                # Get latest build info
+                local build_info
+                if build_info=$(curl -s "https://api.papermc.io/v2/projects/paper/versions/$mc_version/builds"); then
+                    # Extract latest build number
+                    local latest_build
+                    latest_build=$(echo "$build_info" | grep -o '"build":[0-9]*' | grep -o '[0-9]*' | tail -1)
+                    
+                    if [ -n "$latest_build" ]; then
+                        echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Found build: ${BOLD_CYAN}#${latest_build}${RESET}"
+                        
+                        # Construct download URL with specific build number
+                        local specific_url="https://api.papermc.io/v2/projects/paper/versions/$mc_version/builds/$latest_build/downloads/paper-$mc_version-$latest_build.jar"
+                        
+                        if ! download_with_retry "$specific_url" "server.jar"; then
+                            echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to download Paper server jar."
+                            rm -rf "$temp_dir"
+                            return 1
+                        fi
+                    else
+                        echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to parse build information."
+                        rm -rf "$temp_dir"
+                        return 1
+                    fi
+                else
+                    echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to get build information."
+                    rm -rf "$temp_dir"
+                    return 1
+                fi
             fi
             
             echo -e "${BOLD_GREEN}${CHECK_MARK} ${RESET}Paper server jar downloaded successfully!"
@@ -346,8 +508,14 @@ install_server() {
             fi
             
             echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Installing Forge server (this may take a while)..."
-            java -jar "$installer_jar" --installServer >/dev/null 2>&1 &
-            spinner $!
+            start_spinner "Installing Forge server"
+            if ! java -jar "$installer_jar" --installServer > /dev/null 2>&1; then
+                stop_spinner
+                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to install Forge server."
+                rm -rf "$temp_dir"
+                return 1
+            fi
+            stop_spinner
             
             # Find the forge jar
             local forge_jar
@@ -386,8 +554,14 @@ install_server() {
             fi
             
             echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Installing Fabric server for Minecraft ${BOLD_CYAN}${mc_version}${RESET}..."
-            java -jar "$installer_jar" server -mcversion "$mc_version" -downloadMinecraft >/dev/null 2>&1 &
-            spinner $!
+            start_spinner "Installing Fabric server"
+            if ! java -jar "$installer_jar" server -mcversion "$mc_version" -downloadMinecraft > /dev/null 2>&1; then
+                stop_spinner
+                echo -e "${BOLD_RED}${CROSS_MARK} ${RESET}Failed to install Fabric server."
+                rm -rf "$temp_dir"
+                return 1
+            fi
+            stop_spinner
             
             if [ -f "fabric-server-launch.jar" ]; then
                 # Rename to server.jar
@@ -482,7 +656,7 @@ install_server() {
     # Clean up temporary directory
     rm -rf "$temp_dir"
     
-    echo -e "${BOLD_GREEN}${ROCKET} Server software installed successfully! ${ROCKET}${RESET}"
+    fancy_box "${SPARKLES} Server software installed successfully! ${SPARKLES}" "$BOLD_GREEN"
     return 0
 }
 
@@ -491,7 +665,7 @@ configure_server() {
     local server_type
     server_type=$(cat .server-type 2>/dev/null || echo "unknown")
     
-    print_header "Server Configuration"
+    print_header "Server Configuration" "$BOLD_CYAN" "$GEAR"
     
     echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Configuring ${BOLD_CYAN}${server_type^}${RESET} server..."
     
@@ -506,6 +680,8 @@ configure_server() {
     
     # Create server.properties for Minecraft servers
     if [[ "$server_type" != "bungeecord" && "$server_type" != "velocity" ]]; then
+        if [ ! -f "server.properties" ]; then
+            echo -e "${BOLD_YELLOW}${ARROW  ]]; then
         if [ ! -f "server.properties" ]; then
             echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Creating server.properties file..."
             
@@ -573,7 +749,7 @@ EOL
     echo "eula=true" > eula.txt
     echo -e "  ${BOLD_GREEN}${CHECK_MARK} ${RESET}EULA accepted!"
     
-    echo -e "${BOLD_GREEN}${GEAR} Server configured successfully! ${GEAR}${RESET}"
+    fancy_box "${SPARKLES} Server configured successfully! ${SPARKLES}" "$BOLD_GREEN"
     return 0
 }
 
@@ -582,7 +758,7 @@ start_server() {
     local server_type
     server_type=$(cat .server-type 2>/dev/null || echo "unknown")
     
-    print_header "Server Startup"
+    print_header "Server Startup" "$BOLD_CYAN" "$ROCKET"
     
     echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Starting ${BOLD_CYAN}${server_type^}${RESET} server..."
     
@@ -642,7 +818,7 @@ select_and_install_server() {
         "${RED}Sponge${RESET} - Plugin API for Minecraft"
     )
     
-    display_menu "Select Server Software" "${server_options[@]}"
+    display_menu "Select Server Software" "$ROCKET" "${server_options[@]}"
     read -r choice
     
     case $choice in
@@ -661,7 +837,13 @@ select_and_install_server() {
     esac
     
     # Get Minecraft version
-    mc_version=$(get_input "Enter Minecraft version (e.g., 1.20.4) or press Enter for latest" "$DEFAULT_MC_VERSION")
+    echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Enter Minecraft version (e.g., 1.20.4) or press Enter for latest: "
+    read -r mc_version
+    
+    if [ -z "$mc_version" ]; then
+        mc_version="$DEFAULT_MC_VERSION"
+        echo -e "${BOLD_YELLOW}${ARROW} ${RESET}Using default version: ${BOLD_CYAN}${mc_version}${RESET}"
+    fi
     
     # Install server
     if ! install_server "$server_type" "$mc_version"; then
@@ -705,7 +887,7 @@ main() {
             "${RED}Exit${RESET} - Exit without starting the server"
         )
         
-        display_menu "Main Menu" "${main_options[@]}"
+        display_menu "Main Menu" "$CROWN" "${main_options[@]}"
         read -r choice
         
         case $choice in
